@@ -1,0 +1,196 @@
+-- Crear la base de datos
+CREATE DATABASE DBREACT_VENTA
+GO
+
+-- Usar la base de datos creada
+USE DBREACT_VENTA
+GO
+
+-- Crear tabla de roles
+CREATE TABLE Rol(
+    idRol INT PRIMARY KEY IDENTITY(1,1),
+    descripcion VARCHAR(50),
+    esActivo BIT,
+    fechaRegistro DATETIME DEFAULT GETDATE()
+)
+GO
+
+-- Crear tabla de usuarios
+CREATE TABLE Usuario(
+    idUsuario INT PRIMARY KEY IDENTITY(1,1),
+    nombre VARCHAR(40),
+    correo VARCHAR(40),
+    telefono VARCHAR(40),
+    idRol INT REFERENCES Rol(idRol),
+    clave VARCHAR(40),
+    esActivo BIT
+)
+GO
+
+-- Crear tabla de categorías
+CREATE TABLE Categoria(
+    idCategoria INT PRIMARY KEY IDENTITY(1,1),
+    descripcion VARCHAR(50),
+    esActivo BIT,
+    fechaRegistro DATETIME DEFAULT GETDATE()
+)
+GO
+
+-- Crear tabla de productos
+CREATE TABLE Producto (
+    idProducto INT PRIMARY KEY IDENTITY(1,1),
+    codigo VARCHAR(100),
+    marca VARCHAR(100),
+    descripcion VARCHAR(100),
+    idCategoria INT REFERENCES Categoria(idCategoria),
+    stock INT,
+    precio DECIMAL(10,2),
+    esActivo BIT,
+    fechaRegistro DATETIME DEFAULT GETDATE()
+)
+GO
+
+-- Crear tabla de ventas
+CREATE TABLE Venta(
+    idVenta INT PRIMARY KEY IDENTITY(1,1),
+    numeroDocumento VARCHAR(40),
+    tipoDocumento VARCHAR(50),
+    fechaRegistro DATETIME DEFAULT GETDATE(),
+    idUsuario INT REFERENCES Usuario(idUsuario),
+    documentoCliente VARCHAR(40),
+    nombreCliente VARCHAR(40),
+    subTotal DECIMAL(10,2),
+    impuestoTotal DECIMAL(10,2),
+    total DECIMAL(10,2)
+)
+GO
+
+-- Crear tabla de detalle de ventas
+CREATE TABLE DetalleVenta(
+    idDetalleVenta INT PRIMARY KEY IDENTITY(1,1),
+    idVenta INT REFERENCES Venta(idVenta),
+    idProducto INT REFERENCES Producto(idProducto),
+    cantidad INT,
+    precio DECIMAL(10,2),
+    total DECIMAL(10,2)
+)
+GO
+
+-- Crear tabla de número de documentos
+CREATE TABLE NumeroDocumento(
+    id INT PRIMARY KEY,
+    fechaRegistro DATETIME DEFAULT GETDATE()
+)
+GO
+
+-- Insertar datos iniciales en las tablas
+-- Insertar roles
+INSERT INTO Rol(descripcion, esActivo) VALUES ('Administrador', 1)
+INSERT INTO Rol(descripcion, esActivo) VALUES ('Empleado', 1)
+GO
+
+-- Insertar usuarios
+INSERT INTO Usuario(nombre, correo, telefono, idRol, clave, esActivo) VALUES
+('admin', 'admin@gmail.com', '444333', 1, '123', 1),
+('user', 'user@gmail.com', '555666', 2, '123', 1)
+GO
+
+-- Insertar categorías de panes
+INSERT INTO Categoria(descripcion, esActivo) VALUES 
+('Panadería', 1), 
+('Baguetes', 1), 
+('Pan dulce', 1), 
+('Pasteles', 1), 
+('Pan de masa madre', 1), 
+('Accesorios de panadería', 1)
+GO
+
+-- Insertar productos de panes
+INSERT INTO Producto(codigo, marca, descripcion, idCategoria, stock, precio, esActivo) VALUES
+('101010', 'Panadería E.D', 'Baguette tradicional', 1, 20, 250, 1),
+('101011', 'Panadería E.D', 'Pan de chocolate', 1, 30, 200, 1),
+('101012', 'Panadería E.D', 'Pan de canela', 1, 30, 180, 1),
+('101013', 'Panadería E.D', 'Pastel de vainilla', 2, 25, 500, 1),
+('101014', 'Panadería E.D', 'Pastel de fresa', 2, 15, 550, 1),
+('101015', 'Panadería E.D', 'Pastel de chocolate', 2, 10, 600, 1),
+('101016', 'Panadería E.D', 'Pan de masa madre integral', 3, 10, 350, 1),
+('101017', 'Panadería E.D', 'Pan de masa madre clásico', 3, 10, 400, 1),
+('101018', 'Panadería E.D', 'Pan dulce de almendras', 4, 10, 220, 1),
+('101019', 'Panadería E.D', 'Pan dulce de frutas', 4, 15, 250, 1),
+('101020', 'Panadería E.D', 'Pan de avena', 5, 20, 180, 1),
+('101021', 'Panadería E.D', 'Pan de centeno', 5, 25, 210, 1),
+('101022', 'Panadería E.D', 'Panecillos de desayuno', 6, 10, 150, 1),
+('101023', 'Panadería E.D', 'Mantequilla para panadería', 6, 20, 300, 1),
+('101024', 'Panadería E.D', 'Aceite de oliva para pan', 6, 15, 250, 1)
+GO
+
+-- Insertar valor inicial para número de documento
+INSERT INTO NumeroDocumento(id) VALUES(0)
+GO
+
+-- Crear procedimiento almacenado para registrar una venta
+CREATE PROCEDURE sp_RegistrarVenta(
+    @documentoCliente VARCHAR(40),
+    @nombreCliente VARCHAR(40),
+    @tipoDocumento VARCHAR(50),
+    @idUsuario INT,
+    @subTotal DECIMAL(10,2),
+    @impuestoTotal DECIMAL(10,2),
+    @total DECIMAL(10,2),
+    @productos XML,
+    @nroDocumento VARCHAR(6) OUTPUT
+)
+AS
+BEGIN
+    DECLARE @nrodocgenerado VARCHAR(6)
+    DECLARE @nro INT
+    DECLARE @idventa INT
+
+    DECLARE @tbproductos TABLE (
+        IdProducto INT,
+        Cantidad INT,
+        Precio DECIMAL(10,2),
+        Total DECIMAL(10,2)
+    )
+
+    BEGIN TRY
+        BEGIN TRANSACTION
+
+        -- Parse XML para productos
+        INSERT INTO @tbproductos(IdProducto, Cantidad, Precio, Total)
+        SELECT 
+            nodo.elemento.value('IdProducto[1]', 'int') AS IdProducto,
+            nodo.elemento.value('Cantidad[1]', 'int') AS Cantidad,
+            nodo.elemento.value('Precio[1]', 'decimal(10,2)') AS Precio,
+            nodo.elemento.value('Total[1]', 'decimal(10,2)') AS Total
+        FROM @productos.nodes('Productos/Item') nodo(elemento)
+
+        -- Generar nuevo número de documento
+        UPDATE NumeroDocumento SET @nro = id = id + 1
+        SET @nrodocgenerado = RIGHT('000000' + CONVERT(VARCHAR(MAX), @nro), 6)
+
+        -- Insertar venta
+        INSERT INTO Venta(numeroDocumento, tipoDocumento, idUsuario, documentoCliente, nombreCliente, subTotal, impuestoTotal, total) 
+        VALUES (@nrodocgenerado, @tipoDocumento, @idUsuario, @documentoCliente, @nombreCliente, @subTotal, @impuestoTotal, @total)
+
+        SET @idventa = SCOPE_IDENTITY()
+
+        -- Insertar detalle de venta
+        INSERT INTO DetalleVenta(idVenta, idProducto, cantidad, precio, total) 
+        SELECT @idventa, IdProducto, Cantidad, Precio, Total FROM @tbproductos
+
+        -- Actualizar stock de productos
+        UPDATE p SET p.stock = p.stock - dv.Cantidad 
+        FROM Producto p
+        INNER JOIN @tbproductos dv ON dv.IdProducto = p.idProducto
+
+        COMMIT
+        SET @nroDocumento = @nrodocgenerado
+
+    END TRY
+    BEGIN CATCH
+        ROLLBACK
+        SET @nroDocumento = ''
+    END CATCH
+END
+GO
